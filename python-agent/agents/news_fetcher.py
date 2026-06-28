@@ -281,7 +281,7 @@ def fetch_and_process_all() -> dict:
     governance), stores signals, and sends callback to .NET API.
     """
     import httpx
-    from agents.rss_fetcher import fetch_rss_articles
+    from agents.rss_fetcher import fetch_rss_articles, fetch_google_news_articles, fetch_edgar_articles
 
     tickers  = get_watchlist()
     provider = get_provider()
@@ -289,28 +289,32 @@ def fetch_and_process_all() -> dict:
     stats    = {"fetched": 0, "processed": 0, "passed": 0, "rejected": 0}
 
     def _run(article: NewsArticle, source_tier: int) -> None:
-        if article_exists(article.dedup_key):
-            return
-        insert_article({
-            "id":           article.id,
-            "ticker":       article.ticker,
-            "headline":     article.headline,
-            "body":         article.body,
-            "source_url":   article.source_url,
-            "source_name":  article.source_name,
-            "dedup_key":    article.dedup_key,
-            "published_at": article.published_at,
-        })
-        payload = process_article(article, ollama)
-        stats["processed"] += 1
-        if payload["governancePassed"]:
-            stats["passed"] += 1
-        else:
-            stats["rejected"] += 1
         try:
-            httpx.post(CALLBACK_URL, json=payload, timeout=10)
+            if article_exists(article.dedup_key):
+                return
+            insert_article({
+                "id":           article.id,
+                "ticker":       article.ticker,
+                "headline":     article.headline,
+                "body":         article.body,
+                "source_url":   article.source_url,
+                "source_name":  article.source_name,
+                "dedup_key":    article.dedup_key,
+                "published_at": article.published_at,
+            })
+            payload = process_article(article, ollama)
+            stats["processed"] += 1
+            if payload["governancePassed"]:
+                stats["passed"] += 1
+            else:
+                stats["rejected"] += 1
+            try:
+                httpx.post(CALLBACK_URL, json=payload, timeout=10)
+            except Exception as e:
+                log.warning(f"Callback failed for {article.id}: {e}")
         except Exception as e:
-            log.warning(f"Callback failed for {article.id}: {e}")
+            log.warning(f"Skipping article [{article.ticker}] '{article.headline[:60]}': {e}")
+            stats["rejected"] += 1
 
     for ticker in tickers:
         articles = provider.fetch(ticker, days_back=NEWS_DAYS)
@@ -322,6 +326,16 @@ def fetch_and_process_all() -> dict:
     stats["fetched"] += len(rss_articles)
     for article in rss_articles:
         _run(article, source_tier=getattr(article, "source_tier", 1))
+
+    google_articles = fetch_google_news_articles(watchlist=tickers, days_back=NEWS_DAYS)
+    stats["fetched"] += len(google_articles)
+    for article in google_articles:
+        _run(article, source_tier=getattr(article, "source_tier", 2))
+
+    edgar_articles = fetch_edgar_articles(watchlist=tickers, days_back=NEWS_DAYS)
+    stats["fetched"] += len(edgar_articles)
+    for article in edgar_articles:
+        _run(article, source_tier=getattr(article, "source_tier", 3))
 
     log.info(f"Phase 2 ingest complete: {stats}")
     return {"status": "ok", **stats}

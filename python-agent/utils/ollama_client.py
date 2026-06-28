@@ -1,4 +1,4 @@
-import os, json, logging, time
+import os, json, re, logging, time
 import httpx
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,35 @@ class OllamaClient:
 
     def parse_json(self, text: str) -> dict:
         text = text.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text  = "\n".join(lines[1:-1])
+
+        # Strip markdown code fences (```json ... ``` or ``` ... ```)
+        fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+        if fence:
+            text = fence.group(1).strip()
+
+        # Try clean parse first
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Extract the outermost { ... } block (handles preamble text from mistral)
+        start = text.find("{")
+        end   = text.rfind("}") + 1
+        if start != -1 and end > start:
+            text = text[start:end]
+
+        # Remove trailing commas before } or ] — common LLM mistake
+        text = re.sub(r",\s*([}\]])", r"\1", text)
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Replace literal newlines inside string values with a space
+        text = re.sub(r'(?<=\w)\n(?=\s*")', ' ', text)
+        text = re.sub(r'(?<=,)\n\n+', '\n', text)
+
+        log.debug(f"Attempting final JSON parse after cleanup: {text[:300]}")
         return json.loads(text)

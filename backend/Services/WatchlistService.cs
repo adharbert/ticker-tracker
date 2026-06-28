@@ -13,8 +13,7 @@ public interface IWatchlistService
 
 public class WatchlistService(AppDbContext db) : IWatchlistService
 {
-    public Task<List<WatchlistItem>> GetAllAsync() =>
-        db.Watchlist.OrderBy(w => w.Ticker).ToListAsync();
+    public Task<List<WatchlistItem>> GetAllAsync() => db.Watchlist.OrderBy(w => w.Ticker).ToListAsync();
 
     public async Task AddAsync(AddWatchlistItemDto dto)
     {

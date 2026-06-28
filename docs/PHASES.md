@@ -331,7 +331,7 @@ the database or callback without passing through it.
   `"short position"`, `"short selling"`.
 
 - **Signals table owned by .NET, not Python** — Python validates and sends the signal
-  JSON to the `.NET callback endpoint. `ProcessCallbackAsync` in `SignalService.cs` is
+  JSON to the .NET callback endpoint. `ProcessCallbackAsync` in `SignalService.cs` is
   the sole DB writer. Python must not call `insert_signal()` directly.
 
 - **ChromaDB date filter is numeric** — `query_recent()` filters on `publish_ts`
@@ -344,6 +344,32 @@ the database or callback without passing through it.
 - **SentimentChart snaps signals to nearest price date** — `publishedAt` is set to
   `UtcNow` at callback time, which may be after the last price in the DB. The chart
   finds the nearest earlier price date so dots always render.
+
+- **Google News RSS added** — `fetch_google_news_articles()` in `rss_fetcher.py`
+  fetches per-ticker Google News RSS. Headline format is "Title - Source Name" so the
+  source is split off and its tier resolved via `_TIER_MAP`. BTC-USD and other
+  hyphenated tickers must be URL-encoded (`BTC-USD` → `BTC%20USD`) with
+  `urllib.parse.quote`. Tier 2 default unless a higher-tier source is identified in
+  the headline suffix.
+
+- **SEC EDGAR Atom feed added** — `fetch_edgar_articles()` in `rss_fetcher.py` fetches
+  8-K and 10-Q filings per ticker. Non-equity tickers (`BTC-USD`, `ETH-USD`) are
+  skipped. Requires a descriptive `User-Agent` header (set `SEC_USER_AGENT` in `.env`).
+  A 0.12s sleep between requests stays under SEC's 10 req/s rate limit. Tier 3
+  (official corporate disclosures).
+
+- **Mistral JSON parse hardened** — `parse_json()` in `utils/ollama_client.py` now
+  applies multi-pass cleanup: strip markdown fences → extract outermost `{...}` block
+  → remove trailing commas → replace literal newlines inside string values. Per-article
+  `try/except` in `_run()` means one bad mistral response skips that article instead
+  of crashing the entire pipeline run.
+
+- **ChromaDB telemetry silenced** — `ANONYMIZED_TELEMETRY=False` added to `.env`
+  silences harmless posthog `capture()` errors logged at ERROR level by ChromaDB 0.5.
+
+- **`insert_article` helper** — `utils/db.py` exposes `article_exists()`,
+  `insert_article()`, and `get_watchlist()`. `fetch_and_process_all()` uses these
+  instead of raw psycopg2 to keep DB access consolidated in one module.
 
 ---
 

@@ -2,10 +2,7 @@ using NewsMarketAgent.Api.Services;
 
 namespace NewsMarketAgent.Api.Scheduler;
 
-public class DailyIngestJob(
-    IServiceProvider services,
-    IConfiguration config,
-    ILogger<DailyIngestJob> log) : BackgroundService
+public class DailyIngestJob(IServiceProvider services, IConfiguration config, ILogger<DailyIngestJob> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,8 +22,7 @@ public class DailyIngestJob(
             try
             {
                 using var scope  = services.CreateScope();
-                var ingest       = scope.ServiceProvider
-                                        .GetRequiredService<INewsIngestionService>();
+                var ingest       = scope.ServiceProvider.GetRequiredService<INewsIngestionService>();
                 await ingest.IngestLatestAsync();
             }
             catch (Exception ex)

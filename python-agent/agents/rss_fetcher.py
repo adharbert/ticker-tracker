@@ -8,11 +8,14 @@ per (article × matched_ticker) pair.
 """
 
 import logging
+import os
 import re
+import time
 import uuid
 import hashlib
 from calendar import timegm
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import feedparser
 
@@ -63,6 +66,11 @@ _COMPANY_NAME_MAP: dict[str, str] = {
     "cryptocurrency":    "BTC-USD",
     "crypto":            "BTC-USD",
 }
+
+_EDGAR_SKIP: set[str] = {"BTC-USD", "ETH-USD"}  # non-equity tickers with no SEC filings
+_EDGAR_FORMS   = ["8-K", "10-Q"]
+_EDGAR_AGENT   = os.getenv("SEC_USER_AGENT", "NewsMarketAgent research@localhost.com")
+_GOOGLE_NEWS_TIER = 2  # Google aggregates major outlets; resolve per-article via _TIER_MAP
 
 _TIER_MAP: dict[str, int] = {
     "reuters":              3,
@@ -188,4 +196,138 @@ def fetch_rss_articles(watchlist: list[str], days_back: int) -> list:
         log.info(f"RSS '{feed_name}': {len(parsed.entries)} entries parsed")
 
     log.info(f"RSS total: {len(results)} articles matched to watchlist tickers")
+    return results
+
+
+def fetch_google_news_articles(watchlist: list[str], days_back: int) -> list:
+    """
+    Fetch Google News RSS per ticker. Headlines arrive as "Title - Source Name"
+    so we split to extract the real source and resolve its credibility tier.
+    """
+    from agents.news_fetcher import NewsArticle
+
+    if not watchlist:
+        return []
+
+    cutoff  = datetime.now(timezone.utc) - timedelta(days=days_back)
+    results: list = []
+
+    for ticker in watchlist:
+        search = quote(ticker.replace("-", " "))
+        url    = (
+            f"https://news.google.com/rss/search"
+            f"?q={search}+stock&hl=en-US&gl=US&ceid=US:en"
+        )
+        try:
+            parsed = feedparser.parse(url)
+        except Exception as e:
+            log.warning(f"Google News RSS error for {ticker}: {e}")
+            continue
+
+        count = 0
+        for entry in parsed.entries:
+            try:
+                raw_title = (entry.get("title") or "").strip()
+                if not raw_title:
+                    continue
+
+                published_at = _parse_entry_date(entry)
+                if published_at is None:
+                    published_at = datetime.now(timezone.utc)
+                if published_at < cutoff:
+                    continue
+
+                # Google News titles: "Headline - Source Name"
+                if " - " in raw_title:
+                    parts       = raw_title.rsplit(" - ", 1)
+                    headline    = parts[0].strip()
+                    source_name = parts[1].strip()
+                else:
+                    headline    = raw_title
+                    source_name = "Google News"
+
+                tier    = _resolve_tier(_GOOGLE_NEWS_TIER, source_name)
+                article = NewsArticle(
+                    ticker=ticker,
+                    headline=headline,
+                    body="",
+                    source_name=source_name,
+                    source_url=entry.get("link") or "",
+                    published_at=published_at,
+                )
+                article.source_tier = tier
+                results.append(article)
+                count += 1
+            except Exception as e:
+                log.debug(f"Skipping malformed Google News entry for {ticker}: {e}")
+
+        log.info(f"Google News '{ticker}': {count} articles")
+
+    log.info(f"Google News total: {len(results)} articles")
+    return results
+
+
+def fetch_edgar_articles(watchlist: list[str], days_back: int) -> list:
+    """
+    Fetch SEC EDGAR 8-K and 10-Q filings per ticker via the EDGAR Atom feed.
+    Skips non-equity tickers (BTC-USD etc). Tier 3 — official company disclosures.
+    SEC policy requires a descriptive User-Agent header (set SEC_USER_AGENT in .env).
+    """
+    from agents.news_fetcher import NewsArticle
+
+    if not watchlist:
+        return []
+
+    cutoff  = datetime.now(timezone.utc) - timedelta(days=days_back)
+    headers = {"User-Agent": _EDGAR_AGENT}
+    results: list = []
+
+    for ticker in watchlist:
+        if ticker in _EDGAR_SKIP:
+            continue
+
+        for form_type in _EDGAR_FORMS:
+            url = (
+                f"https://www.sec.gov/cgi-bin/browse-edgar"
+                f"?action=getcompany&CIK={ticker}&type={form_type}"
+                f"&dateb=&owner=include&count=10&output=atom"
+            )
+            try:
+                parsed = feedparser.parse(url, request_headers=headers)
+                time.sleep(0.12)  # stay under SEC's 10 req/s limit
+            except Exception as e:
+                log.warning(f"EDGAR fetch error for {ticker} {form_type}: {e}")
+                continue
+
+            count = 0
+            for entry in parsed.entries:
+                try:
+                    title = (entry.get("title") or "").strip()
+                    if not title:
+                        continue
+
+                    published_at = _parse_entry_date(entry)
+                    if published_at is None:
+                        published_at = datetime.now(timezone.utc)
+                    if published_at < cutoff:
+                        continue
+
+                    body    = entry.get("summary") or entry.get("description") or ""
+                    article = NewsArticle(
+                        ticker=ticker,
+                        headline=f"[SEC {form_type}] {title}",
+                        body=body,
+                        source_name="SEC EDGAR",
+                        source_url=entry.get("link") or entry.get("id") or "",
+                        published_at=published_at,
+                    )
+                    article.source_tier = 3
+                    results.append(article)
+                    count += 1
+                except Exception as e:
+                    log.debug(f"Skipping malformed EDGAR entry for {ticker} {form_type}: {e}")
+
+            log.info(f"EDGAR {ticker} {form_type}: {count} filings")
+
+    log.info(f"EDGAR total: {len(results)} filings")
     return results

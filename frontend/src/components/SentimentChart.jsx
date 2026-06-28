@@ -3,7 +3,7 @@ import {
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 
-export default function SentimentChart({ data, ticker }) {
+export default function SentimentChart({ data, ticker, name }) {
   if (!data?.length) return null;
 
   const prices   = data.map(d => d.price).filter(Boolean);
@@ -21,9 +21,11 @@ export default function SentimentChart({ data, ticker }) {
 
   return (
     <div style={{ marginBottom: '1.5rem' }}>
-      <h3 style={{ marginBottom: '0.5rem', fontSize: '1rem', color: '#374151' }}>
-        {ticker} — Sentiment vs Price
-      </h3>
+      <div style={{ marginBottom: '0.5rem' }}>
+        <span style={{ fontWeight: 700, fontSize: '1rem', color: '#f8fafc' }}>{ticker}</span>
+        {name && <span style={{ color: '#94a3b8', fontSize: '0.9rem', marginLeft: 8 }}>{name}</span>}
+        <span style={{ color: '#64748b', fontSize: '0.8rem', marginLeft: 8 }}>· Price &amp; Sentiment</span>
+      </div>
       <ResponsiveContainer width="100%" height={240}>
         <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />

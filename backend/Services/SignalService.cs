@@ -13,8 +13,7 @@ public interface ISignalService
 
 public class SignalService(AppDbContext db, ILogger<SignalService> log) : ISignalService
 {
-    public async Task<IEnumerable<SignalResponseDto>> GetAsync(
-        string? ticker, int limit, string? from)
+    public async Task<IEnumerable<SignalResponseDto>> GetAsync(string? ticker, int limit, string? from)
     {
         var query = db.Signals
             .Where(s => s.GovernancePassed)
@@ -27,36 +26,33 @@ public class SignalService(AppDbContext db, ILogger<SignalService> log) : ISigna
             query = query.Where(s => s.PublishedAt >= fromDate);
 
         return await query
-            .OrderByDescending(s => s.PublishedAt)
-            .Take(limit)
-            .Select(s => ToDto(s))
-            .ToListAsync();
+                    .OrderByDescending(s => s.PublishedAt)
+                    .Take(limit)
+                    .Select(s => ToDto(s))
+                    .ToListAsync();
     }
 
     public async Task<SignalResponseDto?> GetByIdAsync(Guid id)
     {
-        var s = await db.Signals
-            .FirstOrDefaultAsync(s => s.Id == id && s.GovernancePassed);
+        var s = await db.Signals.FirstOrDefaultAsync(s => s.Id == id && s.GovernancePassed);
         return s is null ? null : ToDto(s);
     }
 
     public async Task ProcessCallbackAsync(SignalCallbackDto dto)
     {
         await db.NewsArticles
-            .Where(a => a.Id == dto.ArticleId)
-            .ExecuteUpdateAsync(s => s.SetProperty(a => a.Processed, true));
+                .Where(a => a.Id == dto.ArticleId)
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.Processed, true));
 
         if (!dto.GovernancePassed || dto.Signal is null)
         {
-            log.LogInformation("Signal rejected for article {Id}: {Reason}",
-                               dto.ArticleId, dto.RejectionReason);
+            log.LogInformation("Signal rejected for article {Id}: {Reason}", dto.ArticleId, dto.RejectionReason);
             return;
         }
 
         if (!PassesApiGovernance(dto.Signal))
         {
-            log.LogWarning("Signal failed C# governance check for article {Id}",
-                           dto.ArticleId);
+            log.LogWarning("Signal failed C# governance check for article {Id}", dto.ArticleId);
             return;
         }
 
@@ -87,8 +83,8 @@ public class SignalService(AppDbContext db, ILogger<SignalService> log) : ISigna
         if (string.IsNullOrEmpty(s.Disclaimer)) return false;
         if (s.Confidence < 0.65m) return false;
         string[] prohibited = ["buy", "sell", "invest", "guaranteed", "price target"];
-        return !prohibited.Any(p =>
-            s.ImpactSummary.Contains(p, StringComparison.OrdinalIgnoreCase));
+
+        return !prohibited.Any(p => s.ImpactSummary.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     private static SignalResponseDto ToDto(Signal s) => new()

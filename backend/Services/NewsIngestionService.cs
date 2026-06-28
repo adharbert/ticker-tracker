@@ -23,8 +23,7 @@ public class NewsIngestionService(IHttpClientFactory http, ILogger<NewsIngestion
         }
         catch (HttpRequestException ex)
         {
-            log.LogError(ex, "Could not reach Python agent at {Base}",
-                         client.BaseAddress);
+            log.LogError(ex, "Could not reach Python agent at {Base}", client.BaseAddress);
             return "python_agent_unreachable";
         }
     }

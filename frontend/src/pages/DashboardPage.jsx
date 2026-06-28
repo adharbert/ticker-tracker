@@ -82,7 +82,11 @@ export default function DashboardPage() {
       </div>
 
       {selected && chartData.length > 0 && (
-        <SentimentChart data={chartData} ticker={selected} />
+        <SentimentChart
+          data={chartData}
+          ticker={selected}
+          name={watchlist.find(w => w.ticker === selected)?.name}
+        />
       )}
 
       <SignalFeed ticker={selected} />

@@ -43,9 +43,11 @@
                          callback: POST /api/signals/callback
 
 External sources (all free, no API key):
-  yfinance news        →  Python news_fetcher.py  →  pipeline  →  callback  →  C#
-  RSS feeds (8 feeds)  →  Python rss_fetcher.py   →  pipeline  →  callback  →  C#
-  yfinance OHLCV       →  Python price_fetcher.py →  PostgreSQL
+  yfinance news          →  Python news_fetcher.py  →  pipeline  →  callback  →  C#
+  RSS feeds (8 feeds)    →  Python rss_fetcher.py   →  pipeline  →  callback  →  C#
+  Google News RSS        →  Python rss_fetcher.py   →  pipeline  →  callback  →  C#
+  SEC EDGAR (8-K, 10-Q)  →  Python rss_fetcher.py   →  pipeline  →  callback  →  C#
+  yfinance OHLCV         →  Python price_fetcher.py →  PostgreSQL
   (Other providers can be added — see docs/AGENTS.md#news-provider-abstraction)
 ```
 
@@ -70,13 +72,11 @@ source later, implement the protocol and set `NEWS_PROVIDER=finnhub` in `.env`.
 ### Agent processing flow
 
 ```
-Python consumer wakes on RabbitMQ message
+Python _run() called per article (HTTP-triggered or scheduled — not RabbitMQ)
 │
-├─ Step 1: EventClassifier (llama3.2)
-│   ├─ Phase 1: keyword-based (fast, no GPU)
-│   ├─ Phase 2+: Ollama LLM classification
+├─ Step 1: EventClassifier (keyword-based, Phase 1; upgradeable to llama3.2 in Phase 2)
 │   ├─ Returns: event_type ∈ {fed_rate, earnings, merger, regulatory, macro, noise}
-│   └─ If "noise" → discard, ACK message, done
+│   └─ If "noise" → log and skip article, done
 │
 ├─ Step 2: SentimentAgent (FinBERT, local)
 │   ├─ Loads ProsusAI/finbert via HuggingFace transformers
@@ -267,14 +267,16 @@ CREATE TABLE training_examples (
 
 | Failure point              | Behavior                                                         |
 |----------------------------|------------------------------------------------------------------|
-| Finnhub API fails          | Log + skip this cycle; retry on next scheduled run               |
-| RabbitMQ publish fails     | Article marked `processed=false`; retry on next trigger          |
-| Ollama unreachable         | Retry 3× with exponential backoff, then NACK message             |
-| FinBERT model not loaded   | Fail agent step, log error, NACK message                        |
-| GovernanceGate rejects     | Signal discarded, rejection reason logged, ACK message           |
+| yfinance fetch fails       | Log warning + skip that ticker for this cycle; retry next run    |
+| RSS / Google News fails    | Log warning + skip that feed/ticker; rest of pipeline continues  |
+| SEC EDGAR fetch fails      | Log warning + skip that ticker/form; rest of pipeline continues  |
+| Ollama unreachable         | Retry 3× with exponential backoff, then raise RuntimeError       |
+| Mistral returns bad JSON   | Multi-pass parse_json() cleanup; if all passes fail, per-article |
+|                            | try/except in _run() skips that article and increments rejected  |
+| FinBERT model not loaded   | Fail agent step, log error, article skipped                      |
+| GovernanceGate rejects     | Signal discarded, rejection reason logged, article counted       |
 | ChromaDB unavailable       | Skip RAG context, continue with empty context                    |
-| Callback POST fails        | Log warning; signal already stored in DB by Python               |
-| yfinance fetch fails       | Log + skip ticker for this day; try again tomorrow               |
+| Callback POST fails        | Log warning; signal NOT yet in .NET DB (Python does not write it)|
 
 ---
 

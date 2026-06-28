@@ -398,26 +398,42 @@ def fetch_and_process_all() -> dict:
 
 ---
 
-## File: `python-agent/agents/rss_fetcher.py` (Phase 1 addition)
+## File: `python-agent/agents/rss_fetcher.py`
 
-Fetches 8 general financial RSS feeds and matches articles to watchlist tickers.
-Runs once per pipeline cycle alongside the per-ticker yfinance provider.
+Fetches news from three sources: general RSS feeds, per-ticker Google News RSS, and
+SEC EDGAR filings. All three run once per pipeline cycle and are called from
+`fetch_and_process_all()` in `news_fetcher.py`.
 
-Key design points:
-- Does **not** implement `NewsProvider` — RSS is not ticker-scoped, so it cannot follow
-  the `fetch(ticker, days_back)` protocol. Called directly from `fetch_and_store_all()`.
-- `_find_tickers_in_text()` — regex for `$AAPL`, `(AAPL)`, bare `AAPL` word boundaries,
-  plus a company name map for prose mentions (e.g. "Citigroup" → C).
-- One `NewsArticle` per (entry × matched_ticker). Dedup keys differ per ticker so the
-  same headline stored for two tickers becomes two independent RAG documents.
-- Source tiers: Reuters/AP = 3, CNBC/MarketWatch/Yahoo Finance/Bloomberg = 2, unknown = 1.
-- Sets `article.source_tier` as a dynamic attribute; `_process_article()` reads it via `getattr`.
+**`fetch_rss_articles(watchlist, days_back)`** — Phase 1:
+- Fetches 8 general financial RSS feeds and matches to watchlist tickers via regex +
+  company name map (`_COMPANY_NAME_MAP`).
+- Does **not** implement `NewsProvider` — RSS is not ticker-scoped.
+- One `NewsArticle` per (entry × matched_ticker).
+- Feeds: Reuters Business + Companies (tier 3), CNBC Top News + Finance (tier 2),
+  MarketWatch Top Stories + MarketPulse (tier 2), Yahoo Finance Top Financial + News (tier 2).
 
-Feeds configured:
-- Reuters Business + Companies (tier 3)
-- CNBC Top News + Finance (tier 2)
-- MarketWatch Top Stories + MarketPulse (tier 2)
-- Yahoo Finance Top Financial + News (tier 2)
+**`fetch_google_news_articles(watchlist, days_back)`** — Phase 2 addition:
+- Per-ticker Google News RSS: `https://news.google.com/rss/search?q={search}+stock&...`
+- Ticker is URL-encoded with `urllib.parse.quote` (required for hyphenated tickers like
+  `BTC-USD` → `BTC%20USD`).
+- Headlines arrive as `"Title - Source Name"`. The source is split off and resolved
+  through `_TIER_MAP` to get the correct credibility tier (Reuters = 3, CNBC = 2, etc.).
+  Falls back to tier 2 if source is unrecognized.
+- Sets `article.source_tier` as a dynamic attribute.
+
+**`fetch_edgar_articles(watchlist, days_back)`** — Phase 2 addition:
+- Fetches 8-K and 10-Q Atom feeds from SEC EDGAR per equity ticker.
+- Non-equity tickers in `_EDGAR_SKIP` (`BTC-USD`, `ETH-USD`) are skipped.
+- Requires descriptive `User-Agent` header — set `SEC_USER_AGENT` in `.env`.
+- 0.12s sleep between requests respects SEC's 10 req/s rate limit.
+- Always tier 3 (official corporate disclosures).
+
+Common design points across all three functions:
+- Source tiers: wire services/SEC = 3, major outlets = 2, unknown = 1.
+- `article.source_tier` set as a dynamic attribute; `_run()` in `news_fetcher.py` reads
+  it via `getattr(article, "source_tier", default)`.
+- All parse errors are caught per-entry and logged at DEBUG level — one bad entry never
+  drops the whole feed.
 
 ---
 
@@ -690,8 +706,12 @@ Express genuine uncertainty. Do not recommend any action.
 
 ## File: `python-agent/utils/ollama_client.py`
 
+`parse_json()` applies multi-pass cleanup because mistral frequently returns:
+markdown code fences, preamble text before `{`, trailing commas, and literal newlines
+inside string values. Each pass is tried in order; the first success returns.
+
 ```python
-import os, json, logging, time
+import os, json, re, logging, time
 import httpx
 
 log = logging.getLogger(__name__)
@@ -733,9 +753,37 @@ class OllamaClient:
 
     def parse_json(self, text: str) -> dict:
         text = text.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text  = "\n".join(lines[1:-1])
+
+        # Strip markdown code fences (```json ... ``` or ``` ... ```)
+        fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+        if fence:
+            text = fence.group(1).strip()
+
+        # Try clean parse first
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Extract the outermost { ... } block (handles preamble text)
+        start = text.find("{")
+        end   = text.rfind("}") + 1
+        if start != -1 and end > start:
+            text = text[start:end]
+
+        # Remove trailing commas before } or ] — common LLM mistake
+        text = re.sub(r",\s*([}\]])", r"\1", text)
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Replace literal newlines inside string values with a space
+        text = re.sub(r'(?<=\w)\n(?=\s*")', ' ', text)
+        text = re.sub(r'(?<=,)\n\n+', '\n', text)
+
+        log.debug(f"Attempting final JSON parse after cleanup: {text[:300]}")
         return json.loads(text)
 ```
 
@@ -747,10 +795,17 @@ class OllamaClient:
 OLLAMA_BASE_URL=http://localhost:11434
 EVENT_CLASSIFIER_MODEL=llama3.2
 IMPACT_REASONER_MODEL=mistral
-FINBERT_MODEL=ProsusAI/finbert
+
+# FinBERT — point to local model path; set TRANSFORMERS_OFFLINE=1 to prevent HF network checks
+FINBERT_MODEL=D:\models\finbert
+TRANSFORMERS_OFFLINE=1
+
 CHROMA_PATH=./chroma_db
-DB_CONNECTION=postgresql://postgres:postgres@localhost/news_market
-DOTNET_CALLBACK_URL=http://localhost:5000/api/signals/callback
+# Silence ChromaDB posthog telemetry errors (harmless but noisy)
+ANONYMIZED_TELEMETRY=False
+
+DB_CONNECTION=postgresql://postgres:postgres@localhost:5433/news_market
+DOTNET_CALLBACK_URL=http://localhost:5261/api/signals/callback
 PYTHON_AGENT_PORT=5001
 SCHEDULE_TIME=07:00
 
@@ -758,6 +813,9 @@ SCHEDULE_TIME=07:00
 # Set to "finnhub" and add FINNHUB_API_KEY to use Finnhub instead
 NEWS_PROVIDER=yfinance
 NEWS_DAYS_BACK=3
+
+# SEC EDGAR rate-limit compliance — must identify your app + contact email
+SEC_USER_AGENT=NewsMarketAgent your@email.com
 
 # Optional: only needed if NEWS_PROVIDER=finnhub
 # FINNHUB_API_KEY=your_key_here
@@ -770,7 +828,13 @@ NEWS_DAYS_BACK=3
 1. Build `governance/guardrails.py` (see `docs/GOVERNANCE.md`) BEFORE wiring up
    `impact_reasoner.py` outputs to the callback
 2. Run `ollama pull llama3.2 && ollama pull mistral` before first run
-3. FinBERT downloads on first call (~500MB); after that it's cached in `~/.cache/huggingface`
+3. FinBERT is loaded from a local path — download it offline and set `FINBERT_MODEL`
+   to the local directory path. Set `TRANSFORMERS_OFFLINE=1` to prevent network checks.
 4. Phase 1 uses keyword-based `classify_event()` — upgrade to `classify_event_llm()` in Phase 2
 5. `main.py` runs as a single-process consumer; run multiple instances for throughput
-6. For production: add dead-letter queue in RabbitMQ for NACK'd messages
+6. Per-article `try/except` in `_run()` inside `fetch_and_process_all()` is intentional —
+   one bad mistral response must skip that article without killing the whole run
+7. Google News + SEC EDGAR are called after yfinance + RSS in `fetch_and_process_all()`
+8. `insert_article()` in `utils/db.py` does NOT insert `event_type` — that column is
+   only set by Phase 1's `_process_article()` path; the Phase 2 `_run()` path stores
+   raw articles only and lets `process_article()` classify them
