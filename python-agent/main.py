@@ -28,11 +28,11 @@ def run_pipeline() -> dict:
         return {"status": "already_running"}
 
     try:
-        from agents.news_fetcher  import fetch_and_store_all
+        from agents.news_fetcher  import fetch_and_process_all
         from agents.price_fetcher import fetch_prices
 
-        log.info("Starting news fetch...")
-        news_result  = fetch_and_store_all()
+        log.info("Starting news fetch + AI analysis...")
+        news_result  = fetch_and_process_all()
 
         log.info("Starting price fetch...")
         price_result = fetch_prices()

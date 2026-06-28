@@ -16,3 +16,4 @@ export const addTicker      = (ticker, name)   => request('/api/watchlist', {
 export const removeTicker   = (ticker)         => request(`/api/watchlist/${ticker}`, { method: 'DELETE' });
 export const getSignals     = (ticker, limit)  => request(`/api/signals?${new URLSearchParams({ ...(ticker ? { ticker } : {}), limit: limit ?? 20 })}`);
 export const triggerIngest  = ()               => request('/api/ingest/trigger', { method: 'POST' });
+export const getPrices      = (ticker, days)   => request(`/api/prices/${ticker}?days=${days ?? 30}`);

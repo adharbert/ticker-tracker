@@ -1,13 +1,45 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWatchlist } from '../hooks/useWatchlist';
-import { triggerIngest } from '../api/marketApi';
-import SignalFeed from '../components/SignalFeed';
+import { triggerIngest, getPrices, getSignals } from '../api/marketApi';
+import SignalFeed     from '../components/SignalFeed';
+import SentimentChart from '../components/SentimentChart';
 
 export default function DashboardPage() {
   const { watchlist } = useWatchlist();
-  const [selected, setSelected]   = useState(null);
-  const [ingesting, setIngesting] = useState(false);
-  const [status, setStatus]       = useState('');
+  const [selected,   setSelected]   = useState(null);
+  const [ingesting,  setIngesting]  = useState(false);
+  const [status,     setStatus]     = useState('');
+  const [chartData,  setChartData]  = useState([]);
+
+  useEffect(() => {
+    if (!selected) { setChartData([]); return; }
+
+    Promise.all([
+      getPrices(selected, 30),
+      getSignals(selected, 50),
+    ]).then(([prices, signals]) => {
+      const rows = prices.map(p => ({
+        date:       p.date,
+        price:      p.close ? Number(p.close) : null,
+        confidence: null,
+        sentiment:  null,
+      }));
+
+      // Snap each signal to the nearest earlier (or equal) price date
+      for (const s of signals) {
+        const sigDate = s.publishedAt?.slice(0, 10);
+        if (!sigDate) continue;
+        const idx = rows.reduce((best, r, i) =>
+          r.date <= sigDate && (best === -1 || r.date > rows[best].date) ? i : best, -1);
+        if (idx !== -1 && (!rows[idx].confidence || s.confidence > rows[idx].confidence)) {
+          rows[idx].confidence = s.confidence;
+          rows[idx].sentiment  = s.sentiment;
+        }
+      }
+
+      setChartData(rows);
+    }).catch(() => setChartData([]));
+  }, [selected]);
 
   async function handleIngest() {
     setIngesting(true); setStatus('');
@@ -48,6 +80,10 @@ export default function DashboardPage() {
           </button>
         ))}
       </div>
+
+      {selected && chartData.length > 0 && (
+        <SentimentChart data={chartData} ticker={selected} />
+      )}
 
       <SignalFeed ticker={selected} />
     </div>

@@ -199,6 +199,53 @@ public class IngestController : ControllerBase
 
 ---
 
+## File: `backend/Controllers/PricesController.cs`
+
+> Added in Phase 2 to serve the `SentimentChart` in the React frontend.
+
+```csharp
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using NewsMarketAgent.Api.Data;
+using NewsMarketAgent.Api.Models;
+
+namespace NewsMarketAgent.Api.Controllers;
+
+[ApiController]
+[Route("api/prices")]
+public class PricesController(AppDbContext db) : ControllerBase
+{
+    // GET /api/prices/{ticker}?days=30
+    [HttpGet("{ticker}")]
+    public async Task<IEnumerable<PriceResponseDto>> Get(string ticker, [FromQuery] int days = 30)
+    {
+        var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-days));
+
+        return await db.Prices
+            .Where(p => p.Ticker == ticker.ToUpper() && p.Date >= cutoff)
+            .OrderBy(p => p.Date)
+            .Select(p => new PriceResponseDto
+            {
+                Ticker = p.Ticker,
+                Date   = p.Date.ToString("yyyy-MM-dd"),
+                Close  = p.Close,
+            })
+            .ToListAsync();
+    }
+}
+```
+
+Response shape (`PriceResponseDto`):
+
+```json
+[
+  { "ticker": "AAPL", "date": "2024-01-15", "close": 185.92 },
+  { "ticker": "AAPL", "date": "2024-01-16", "close": 183.63 }
+]
+```
+
+---
+
 ## File: `backend/Controllers/BacktestController.cs`
 
 ```csharp

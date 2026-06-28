@@ -5,7 +5,11 @@ import yfinance as yf
 import httpx
 
 from agents.event_classifier import classify_event
-from rag.chroma_store        import add_article
+from agents.sentiment_agent  import score_sentiment
+from agents.impact_reasoner  import analyze_impact
+from rag.chroma_store        import add_article, query_recent
+from governance.guardrails   import validate_signal
+from utils.ollama_client     import OllamaClient
 from utils.db                import get_watchlist, article_exists, insert_article
 
 log = logging.getLogger(__name__)
@@ -211,4 +215,113 @@ def fetch_and_store_all() -> dict:
         _process_article(article, source_tier=getattr(article, "source_tier", 1), stats=stats)
 
     log.info(f"News fetch complete: {stats}")
+    return {"status": "ok", **stats}
+
+
+# ── Phase 2 pipeline: sentiment + impact + governance ─────────────────────────
+
+def process_article(article: NewsArticle, ollama: OllamaClient) -> dict:
+    """
+    Run one article through the full AI pipeline.
+    Returns a callback payload dict.
+    Caller is responsible for dedup-check and DB insert before calling this.
+    """
+    text = article.headline + " " + article.body
+
+    event_type, _ = classify_event(article.headline, article.body)
+    if event_type == "noise":
+        log.info(f"Signal NOISE {article.ticker}: {article.headline[:80]}")
+        return {
+            "articleId": article.id, "ticker": article.ticker,
+            "governancePassed": False, "rejectionReason": "noise", "signal": None,
+        }
+
+    sentiment   = score_sentiment(text)
+    rag_results = query_recent(article.headline, ticker=article.ticker,
+                               days_back=30, n_results=5)
+    rag_context = rag_results.get("documents", [[]])[0]
+
+    raw_signal = analyze_impact(
+        {"event_type": event_type, "headline": article.headline,
+         "tickers": [article.ticker]},
+        sentiment, rag_context, ollama,
+    )
+
+    result = validate_signal(raw_signal, sources=[article.source_name])
+
+    if result.passed:
+        log.info(f"Signal PASSED [{raw_signal.get('event_type')}] {article.ticker}: "
+                 f"confidence={raw_signal.get('confidence'):.2f} warnings={result.warnings}")
+        add_article({
+            "id":           article.id,
+            "text":         text,
+            "ticker":       article.ticker,
+            "source":       article.source_name,
+            "publish_date": article.published_at.strftime("%Y-%m-%d"),
+            "event_type":   event_type,
+            "source_tier":  result.signal.get("source_credibility_tier", 1),
+        })
+
+    if not result.passed:
+        log.info(f"Signal REJECTED [{raw_signal.get('event_type', '?')}] {article.ticker}: "
+                 f"{result.rejection_reason}")
+
+    return {
+        "articleId":        article.id,
+        "ticker":           article.ticker,
+        "governancePassed": result.passed,
+        "rejectionReason":  result.rejection_reason,
+        "signal":           result.signal,
+    }
+
+
+def fetch_and_process_all() -> dict:
+    """
+    Phase 2 entry point. Fetches news, runs full AI pipeline (sentiment + impact +
+    governance), stores signals, and sends callback to .NET API.
+    """
+    import httpx
+    from agents.rss_fetcher import fetch_rss_articles
+
+    tickers  = get_watchlist()
+    provider = get_provider()
+    ollama   = OllamaClient()
+    stats    = {"fetched": 0, "processed": 0, "passed": 0, "rejected": 0}
+
+    def _run(article: NewsArticle, source_tier: int) -> None:
+        if article_exists(article.dedup_key):
+            return
+        insert_article({
+            "id":           article.id,
+            "ticker":       article.ticker,
+            "headline":     article.headline,
+            "body":         article.body,
+            "source_url":   article.source_url,
+            "source_name":  article.source_name,
+            "dedup_key":    article.dedup_key,
+            "published_at": article.published_at,
+        })
+        payload = process_article(article, ollama)
+        stats["processed"] += 1
+        if payload["governancePassed"]:
+            stats["passed"] += 1
+        else:
+            stats["rejected"] += 1
+        try:
+            httpx.post(CALLBACK_URL, json=payload, timeout=10)
+        except Exception as e:
+            log.warning(f"Callback failed for {article.id}: {e}")
+
+    for ticker in tickers:
+        articles = provider.fetch(ticker, days_back=NEWS_DAYS)
+        stats["fetched"] += len(articles)
+        for article in articles:
+            _run(article, source_tier=1)
+
+    rss_articles = fetch_rss_articles(watchlist=tickers, days_back=NEWS_DAYS)
+    stats["fetched"] += len(rss_articles)
+    for article in rss_articles:
+        _run(article, source_tier=getattr(article, "source_tier", 1))
+
+    log.info(f"Phase 2 ingest complete: {stats}")
     return {"status": "ok", **stats}

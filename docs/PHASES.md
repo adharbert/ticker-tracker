@@ -313,12 +313,37 @@ the database or callback without passing through it.
 - `SignalFeed.jsx` — paginated, filterable by ticker + event type
 
 ### Done when
-- [ ] FinBERT scores sentiment for a news article locally (no API call)
-- [ ] mistral generates impact JSON via Ollama for an AAPL earnings story
-- [ ] Governance gate blocks a low-confidence signal (test with confidence=0.4)
-- [ ] Governance gate blocks a signal with "buy" in impact_summary
-- [ ] React SignalCard shows a real signal with disclaimer badge
-- [ ] SentimentChart renders with at least one ticker's data
+- [x] FinBERT scores sentiment for a news article locally (no API call)
+- [x] mistral generates impact JSON via Ollama for an AAPL earnings story
+- [x] Governance gate blocks a low-confidence signal (test with confidence=0.4)
+- [x] Governance gate blocks a signal with "buy" in impact_summary
+- [x] React SignalCard shows a real signal with disclaimer badge
+- [x] SentimentChart renders with at least one ticker's data
+
+### Implementation notes (deviations from spec)
+
+- **FinBERT loaded offline** — model downloaded to `D:\models\finbert`; `FINBERT_MODEL`
+  env var points to the local path. `TRANSFORMERS_OFFLINE=1` prevents HuggingFace
+  network checks. Use `top_k=None` instead of deprecated `return_all_scores=True`.
+
+- **Prohibited phrase "short" narrowed** — bare `"short"` triggered false positives on
+  "short-term". Replaced with specific phrases: `"go short"`, `"short the"`,
+  `"short position"`, `"short selling"`.
+
+- **Signals table owned by .NET, not Python** — Python validates and sends the signal
+  JSON to the `.NET callback endpoint. `ProcessCallbackAsync` in `SignalService.cs` is
+  the sole DB writer. Python must not call `insert_signal()` directly.
+
+- **ChromaDB date filter is numeric** — `query_recent()` filters on `publish_ts`
+  (Unix int) using `$gte`, not the `publish_date` string. Both fields are stored on
+  `add_article()` for human readability.
+
+- **`GET /api/prices/{ticker}?days=30` added** — not in original spec; added to serve
+  the `SentimentChart` component. Lives in `backend/Controllers/PricesController.cs`.
+
+- **SentimentChart snaps signals to nearest price date** — `publishedAt` is set to
+  `UtcNow` at callback time, which may be after the last price in the DB. The chart
+  finds the nearest earlier price date so dots always render.
 
 ---
 
@@ -347,7 +372,7 @@ Backtest governance (see `docs/GOVERNANCE.md#backtesting`):
 
 ### Done when
 - [ ] backtest.py correlates 30+ signals with actual 5-day price moves
-- [ ] Accuracy metric shown alongside 50% baseline in UI
+- [x] Accuracy metric shown alongside 50% baseline in UI
 - [ ] FinBERT fine-tuned on your labeled data
 - [ ] Evaluation shows whether fine-tuned model outperforms base FinBERT
 - [ ] BacktestPage renders results with all governance disclaimers

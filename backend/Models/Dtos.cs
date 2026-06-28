@@ -25,6 +25,13 @@ public class SignalPayloadDto
     public bool     RequiresHumanReview   { get; set; }
 }
 
+public class PriceResponseDto
+{
+    public string   Ticker { get; set; } = "";
+    public string   Date   { get; set; } = "";
+    public decimal? Close  { get; set; }
+}
+
 public class SignalResponseDto
 {
     public string   Id                    { get; set; } = "";

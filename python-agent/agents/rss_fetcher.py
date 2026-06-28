@@ -58,6 +58,10 @@ _COMPANY_NAME_MAP: dict[str, str] = {
     "spacex":            "SPCX",
     "denali":            "DNLI",
     "amphastar":         "AMPH",
+    "bitcoin":           "BTC-USD",
+    "btc":               "BTC-USD",
+    "cryptocurrency":    "BTC-USD",
+    "crypto":            "BTC-USD",
 }
 
 _TIER_MAP: dict[str, int] = {

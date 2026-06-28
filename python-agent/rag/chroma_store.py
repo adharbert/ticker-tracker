@@ -1,7 +1,7 @@
 import os, logging
 import chromadb
 from chromadb.utils import embedding_functions
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_db")
@@ -26,6 +26,12 @@ def get_collection():
     return _collection
 
 
+def _to_ts(date_str: str) -> int:
+    """Convert YYYY-MM-DD string to UTC midnight Unix timestamp for numeric filtering."""
+    return int(datetime.strptime(date_str, "%Y-%m-%d")
+               .replace(tzinfo=timezone.utc).timestamp())
+
+
 def add_article(article: dict) -> None:
     """
     Store an article in ChromaDB.
@@ -40,7 +46,8 @@ def add_article(article: dict) -> None:
             metadatas=[{
                 "ticker":       article.get("ticker", "MARKET"),
                 "source":       article.get("source", "unknown"),
-                "publish_date": article["publish_date"],
+                "publish_date": article["publish_date"],           # string, human-readable
+                "publish_ts":   _to_ts(article["publish_date"]),   # int, used for $gte filter
                 "event_type":   article.get("event_type", "other"),
                 "source_tier":  int(article.get("source_tier", 1)),
             }],
@@ -62,9 +69,9 @@ def query_recent(query_text: str,
     Never call ChromaDB without a date filter.
     """
     collection = get_collection()
-    cutoff     = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    cutoff_ts  = int((datetime.now(timezone.utc) - timedelta(days=days_back)).timestamp())
 
-    where: dict = {"publish_date": {"$gte": cutoff}}
+    where: dict = {"publish_ts": {"$gte": cutoff_ts}}
 
     if ticker and min_tier > 1:
         where = {"$and": [where,
