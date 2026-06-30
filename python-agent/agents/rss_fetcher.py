@@ -65,9 +65,14 @@ _COMPANY_NAME_MAP: dict[str, str] = {
     "btc":               "BTC-USD",
     "cryptocurrency":    "BTC-USD",
     "crypto":            "BTC-USD",
+    # TNA — Direxion Daily Small Cap Bull 3X ETF (tracks Russell 2000)
+    "russell 2000":      "TNA",
+    "small-cap":         "TNA",
+    "small cap stocks":  "TNA",
+    "direxion":          "TNA",
 }
 
-_EDGAR_SKIP: set[str] = {"BTC-USD", "ETH-USD"}  # non-equity tickers with no SEC filings
+_EDGAR_SKIP: set[str] = {"BTC-USD", "ETH-USD", "TNA", "SPY", "QQQ"}  # ETFs/crypto: SEC filings not indexed by ticker
 _EDGAR_FORMS   = ["8-K", "10-Q"]
 _EDGAR_AGENT   = os.getenv("SEC_USER_AGENT", "NewsMarketAgent research@localhost.com")
 _GOOGLE_NEWS_TIER = 2  # Google aggregates major outlets; resolve per-article via _TIER_MAP

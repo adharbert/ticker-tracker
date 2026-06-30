@@ -1,10 +1,27 @@
-import os, logging
+import os, logging, math
 import yfinance as yf
 import psycopg2
 from datetime import datetime, timedelta
 
 log = logging.getLogger(__name__)
 DB_CONN = os.getenv("DB_CONNECTION", "postgresql://postgres:postgres@localhost/news_market")
+
+
+def _f(val) -> float | None:
+    """Extract float from a pandas scalar or Series iloc[0]; return None for NaN/Inf."""
+    if hasattr(val, "iloc"):
+        val = val.iloc[0]
+    try:
+        v = float(val)
+        return None if (math.isnan(v) or math.isinf(v)) else v
+    except (TypeError, ValueError):
+        return None
+
+
+def _i(val) -> int | None:
+    """Extract int from a pandas scalar or Series iloc[0]; return None for NaN."""
+    f = _f(val)
+    return None if f is None else int(f)
 
 
 def fetch_prices(tickers: list[str] = None, days_back: int = 30) -> dict:
@@ -49,11 +66,11 @@ def fetch_prices(tickers: list[str] = None, days_back: int = 30) -> dict:
                         """, (
                             ticker,
                             row["Date"].date() if hasattr(row["Date"], "date") else row["Date"],
-                            float(row["Open"].iloc[0]) if hasattr(row["Open"], "iloc") else float(row["Open"]),
-                            float(row["High"].iloc[0]) if hasattr(row["High"], "iloc") else float(row["High"]),
-                            float(row["Low"].iloc[0])  if hasattr(row["Low"],  "iloc") else float(row["Low"]),
-                            float(row["Close"].iloc[0]) if hasattr(row["Close"], "iloc") else float(row["Close"]),
-                            int(row["Volume"].iloc[0])  if hasattr(row["Volume"], "iloc") else int(row["Volume"]),
+                            _f(row["Open"]),
+                            _f(row["High"]),
+                            _f(row["Low"]),
+                            _f(row["Close"]),
+                            _i(row["Volume"]),
                         ))
                         stats["rows"] += 1
 

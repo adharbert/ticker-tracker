@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(docker exec ticker-tracker-postgres-1 psql -U postgres -d news_market -c \"SELECT ticker, date FROM prices WHERE open::text='NaN' OR high::text='NaN' OR low::text='NaN' OR close::text='NaN';\")",
+      "PowerShell(docker exec ticker-tracker-postgres-1 psql -U postgres -d news_market -c \"\\\\dt\")"
+    ]
+  }
+}
