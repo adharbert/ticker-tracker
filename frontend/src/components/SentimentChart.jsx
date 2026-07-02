@@ -42,7 +42,7 @@ export default function SentimentChart({ data, ticker, name }) {
           />
           <Legend />
           <Line yAxisId="score" type="monotone" dataKey="sentiment"
-            stroke="#3b82f6" dot={{ r: 3 }} name="Sentiment" connectNulls={false} />
+            stroke="#3b82f6" dot={{ r: 3 }} name="Sentiment" connectNulls />
           <Line yAxisId="price" type="monotone" dataKey="normalizedPrice"
             stroke="#10b981" dot={false} name="Price" />
         </ComposedChart>

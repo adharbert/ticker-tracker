@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "PowerShell(docker exec ticker-tracker-postgres-1 psql -U postgres -d news_market -c \"SELECT ticker, date FROM prices WHERE open::text='NaN' OR high::text='NaN' OR low::text='NaN' OR close::text='NaN';\")",
-      "PowerShell(docker exec ticker-tracker-postgres-1 psql -U postgres -d news_market -c \"\\\\dt\")"
+      "PowerShell(docker exec ticker-tracker-postgres-1 psql -U postgres -d news_market -c \"\\\\dt\")",
+      "Bash(python -m scripts.backtest)",
+      "Bash(python3 -)",
+      "Bash(ls .venv)",
+      "Bash(ls venv *)",
+      "Bash(python -c \"import psycopg2\")",
+      "Bash(find . -maxdepth 1 -iname \"*venv*\")",
+      "Bash(python -)"
     ]
   }
 }

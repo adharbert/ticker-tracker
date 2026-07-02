@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import DashboardPage from './pages/DashboardPage';
-import WatchlistPage from './pages/WatchlistPage';
+import DashboardPage  from './pages/DashboardPage';
+import WatchlistPage  from './pages/WatchlistPage';
+import BacktestPage   from './pages/BacktestPage';
 import './App.css';
 
 export default function App() {
@@ -11,12 +12,14 @@ export default function App() {
         <nav style={styles.nav}>
           <NavLink to="/"          style={navStyle} end>Dashboard</NavLink>
           <NavLink to="/watchlist" style={navStyle}>Watchlist</NavLink>
+          <NavLink to="/backtest"  style={navStyle}>Backtest</NavLink>
         </nav>
       </header>
       <main>
         <Routes>
           <Route path="/"          element={<DashboardPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
+          <Route path="/backtest"  element={<BacktestPage />} />
         </Routes>
       </main>
     </BrowserRouter>

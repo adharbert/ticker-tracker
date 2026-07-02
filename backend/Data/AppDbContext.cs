@@ -5,10 +5,11 @@ namespace NewsMarketAgent.Api.Data;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
-    public DbSet<WatchlistItem> Watchlist    { get; set; }
-    public DbSet<NewsArticle>   NewsArticles { get; set; }
-    public DbSet<Signal>        Signals      { get; set; }
-    public DbSet<Price>         Prices       { get; set; }
+    public DbSet<WatchlistItem> Watchlist       { get; set; }
+    public DbSet<NewsArticle>   NewsArticles    { get; set; }
+    public DbSet<Signal>        Signals         { get; set; }
+    public DbSet<Price>         Prices          { get; set; }
+    public DbSet<BacktestResult> BacktestResults { get; set; }
 
     protected override void OnModelCreating(ModelBuilder m)
     {
@@ -74,6 +75,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Low).HasColumnName("low").HasPrecision(12, 4);
             e.Property(x => x.Close).HasColumnName("close").HasPrecision(12, 4);
             e.Property(x => x.Volume).HasColumnName("volume");
+        });
+
+        m.Entity<BacktestResult>(e =>
+        {
+            e.ToTable("backtest_results");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.Ticker).HasColumnName("ticker");
+            e.Property(x => x.EventType).HasColumnName("event_type");
+            e.Property(x => x.LookAheadDays).HasColumnName("look_ahead_days");
+            e.Property(x => x.SampleSize).HasColumnName("sample_size");
+            e.Property(x => x.Accuracy).HasColumnName("accuracy").HasPrecision(5, 4);
+            e.Property(x => x.AccuracyNote).HasColumnName("accuracy_note");
+            e.Property(x => x.BaselineAccuracy).HasColumnName("baseline_accuracy").HasPrecision(5, 4);
+            e.Property(x => x.VsBaseline).HasColumnName("vs_baseline").HasPrecision(5, 4);
+            e.Property(x => x.Disclaimer).HasColumnName("disclaimer");
+            e.Property(x => x.ComputedAt).HasColumnName("computed_at");
         });
 
         // Seed default watchlist

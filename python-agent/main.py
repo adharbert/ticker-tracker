@@ -60,6 +60,26 @@ def trigger():
     return jsonify({"status": "triggered"}), 200
 
 
+def run_backtest_job() -> dict:
+    try:
+        from scripts.backtest import run_backtest
+        log.info("Starting backtest recompute...")
+        results = run_backtest()
+        log.info(f"Backtest complete: {len(results)} tickers evaluated")
+        return {"status": "ok", "tickers_evaluated": len(results)}
+    except Exception as e:
+        log.error(f"Backtest failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)}
+
+
+@app.route("/backtest/trigger", methods=["POST"])
+def trigger_backtest():
+    """Called by C# BacktestController for manual/scheduled recompute."""
+    thread = threading.Thread(target=run_backtest_job, daemon=True)
+    thread.start()
+    return jsonify({"status": "triggered"}), 200
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "port": PORT}), 200

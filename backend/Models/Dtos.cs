@@ -25,6 +25,19 @@ public class SignalPayloadDto
     public bool     RequiresHumanReview   { get; set; }
 }
 
+public class BacktestResponseDto
+{
+    public string   Ticker           { get; set; } = "";
+    public int      LookAheadDays    { get; set; }
+    public int      SampleSize       { get; set; }
+    public decimal? Accuracy         { get; set; }
+    public string?  AccuracyNote     { get; set; }
+    public decimal  BaselineAccuracy { get; set; }
+    public decimal? VsBaseline       { get; set; }
+    public string   Disclaimer       { get; set; } = "";
+    public DateTime ComputedAt       { get; set; }
+}
+
 public class PriceResponseDto
 {
     public string   Ticker { get; set; } = "";

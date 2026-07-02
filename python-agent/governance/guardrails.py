@@ -114,6 +114,17 @@ def validate_signal(raw_signal: dict, sources: list[str]) -> GovernanceResult:
                 warnings=[]
             )
 
+    # ── 2b. Normalize sentiment vocabulary ────────────────────────────────
+    # The reasoner prompt includes FinBERT's raw label (positive/negative/neutral)
+    # alongside the bullish/bearish/neutral schema it's told to output, and the
+    # LLM sometimes echoes the wrong vocabulary back. Normalize here so every
+    # downstream consumer (backtest direction, frontend color coding) only
+    # ever sees bullish/bearish/neutral.
+    SENTIMENT_ALIASES = {"positive": "bullish", "negative": "bearish"}
+    raw_signal["sentiment"] = SENTIMENT_ALIASES.get(
+        str(raw_signal.get("sentiment", "")).lower(), raw_signal.get("sentiment")
+    )
+
     # ── 3. Confidence threshold ───────────────────────────────────────────
     confidence = float(raw_signal.get("confidence", 0))
     if confidence < MIN_CONFIDENCE:

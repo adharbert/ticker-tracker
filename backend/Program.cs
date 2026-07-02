@@ -26,12 +26,14 @@ builder.Services.AddHttpClient("python-agent", c =>
 });
 
 // Services
-builder.Services.AddScoped<IWatchlistService,     WatchlistService>();
-builder.Services.AddScoped<INewsIngestionService, NewsIngestionService>();
-builder.Services.AddScoped<ISignalService,        SignalService>();
+builder.Services.AddScoped<IWatchlistService,        WatchlistService>();
+builder.Services.AddScoped<INewsIngestionService,    NewsIngestionService>();
+builder.Services.AddScoped<ISignalService,           SignalService>();
+builder.Services.AddScoped<IBacktestTriggerService,  BacktestTriggerService>();
 
-// Daily scheduled ingest
+// Daily scheduled ingest + backtest recompute (run after ingest so fresh signals/prices are included)
 builder.Services.AddHostedService<DailyIngestJob>();
+builder.Services.AddHostedService<DailyBacktestJob>();
 
 var app = builder.Build();
 

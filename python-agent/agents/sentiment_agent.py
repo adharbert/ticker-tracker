@@ -1,10 +1,12 @@
 import os
 import logging
+import psycopg2
 from transformers import pipeline
 
 log = logging.getLogger(__name__)
 
 FINBERT_MODEL = os.getenv("FINBERT_MODEL", "ProsusAI/finbert")
+DB_CONN       = os.getenv("DB_CONNECTION", "postgresql://postgres:postgres@localhost:5433/news_market")
 
 # Loaded once at module level — first call is slow (~10s), subsequent calls are fast
 _pipeline = None
@@ -50,3 +52,25 @@ def score_sentiment(text: str) -> dict:
         "scores":     scores,
         "model":      FINBERT_MODEL,
     }
+
+
+def log_training_example(ticker: str, headline: str, body: str,
+                          sentiment_result: dict, signal_id: str = None) -> None:
+    """Log FinBERT output to training_examples for future human review and fine-tuning."""
+    try:
+        conn = psycopg2.connect(DB_CONN)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO training_examples
+                        (ticker, headline, body, finbert_label, finbert_score, signal_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    ticker, headline, (body or "")[:2000],
+                    sentiment_result["sentiment"],
+                    float(sentiment_result["confidence"]),
+                    signal_id,
+                ))
+        conn.close()
+    except Exception as e:
+        log.debug(f"Could not log training example for {ticker}: {e}")

@@ -5,7 +5,7 @@ import yfinance as yf
 import httpx
 
 from agents.event_classifier import classify_event
-from agents.sentiment_agent  import score_sentiment
+from agents.sentiment_agent  import score_sentiment, log_training_example
 from agents.impact_reasoner  import analyze_impact
 from rag.chroma_store        import add_article, query_recent
 from governance.guardrails   import validate_signal
@@ -237,6 +237,8 @@ def process_article(article: NewsArticle, ollama: OllamaClient) -> dict:
         }
 
     sentiment   = score_sentiment(text)
+    log_training_example(article.ticker, article.headline, article.body, sentiment)
+
     rag_results = query_recent(article.headline, ticker=article.ticker,
                                days_back=30, n_results=5)
     rag_context = rag_results.get("documents", [[]])[0]
